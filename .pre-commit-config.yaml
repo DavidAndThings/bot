@@ -2,13 +2,54 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v2.3.0
     hooks:
-      - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
-  - repo: https://github.com/psf/black
-    rev: 21.12b0
+      - id: check-added-large-files
+      - id: check-ast
+      - id: check-byte-order-marker
+      - id: check-builtin-literals
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: debug-statements
+      - id: detect-private-key
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.10.1
+    hooks:
+      - id: isort
+  - repo: https://github.com/ambv/black
+    rev: 22.6.0
     hooks:
       - id: black
+        args:
+          - --safe
+  - repo: https://github.com/asottile/blacken-docs
+    rev: v1.12.1
+    hooks:
+      - id: blacken-docs
+        additional_dependencies:
+          - black==19.10b0
+  - repo: https://github.com/asottile/add-trailing-comma
+    rev: v2.2.3
+    hooks:
+      - id: add-trailing-comma
+  - repo: https://github.com/pycqa/flake8
+    rev: 4.0.1
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          - flake8-bugbear == 20.1.2
+        args:
+          - --ignore=E203,E501,W503
+          - --exclude=.git,__pycache__,build,dist,venv,pycache,docs/conf.py,.tox
+  - repo: https://github.com/PyCQA/autoflake
+    rev: v1.6.1
+    hooks:
+      - args:
+          - --remove-all-unused-imports
+          - --in-place
+        id: autoflake
   - repo: local
     hooks:
      - id: mypy
