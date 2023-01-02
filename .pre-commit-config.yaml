@@ -54,3 +54,4 @@ repos:
     rev: ''
     hooks:
       - id: mypy
+        language: python
