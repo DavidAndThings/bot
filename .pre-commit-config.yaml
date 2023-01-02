@@ -50,13 +50,7 @@ repos:
           - --remove-all-unused-imports
           - --in-place
         id: autoflake
-  - repo: local
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: ''
     hooks:
-     - id: mypy
-       additional_dependencies:
-         - tox
-       name: mypy
-       entry: tox -e Mypy
-       language: python
-       types: [python]
-       pass_filenames: false
+      - id: mypy
