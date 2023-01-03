@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
+
+_SKOLEM_FUNCTION_COUNTER = 0
 
 
 @dataclass
@@ -36,11 +38,23 @@ class Predicate:
 
 @dataclass
 class SkolemFunction:
+
     variables: tuple[str, ...]
+    name: str = field(init=False)
+    counter: int = 0
+
+    def __post_init__(self):
+
+        self.name = f"F_{self.counter}"
+        self.counter += 1
 
 
 Quantifier = ForAll | ThereExists
 Clause = And | Predicate | ForAll | ThereExists | Implies
+
+
+class NotImplementedException(Exception):
+    pass
 
 
 def eliminate_existantial(
@@ -117,3 +131,5 @@ def eliminate_existantial(
                 new_args += (i,)
 
         return Predicate(name=clause.name, arguments=new_args)
+
+    raise NotImplementedException("Clause type not implemented!")
