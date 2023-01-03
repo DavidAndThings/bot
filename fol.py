@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping
-
-_SKOLEM_FUNCTION_COUNTER = 0
+from typing import ClassVar, Mapping
 
 
 @dataclass
@@ -41,12 +39,12 @@ class SkolemFunction:
 
     variables: tuple[str, ...]
     name: str = field(init=False)
-    counter: int = 0
+    counter: ClassVar[int] = field(init=False, default=0)
 
     def __post_init__(self):
 
-        self.name = f"F_{self.counter}"
-        self.counter += 1
+        self.name = f"F_{SkolemFunction.counter}"
+        SkolemFunction.counter += 1
 
 
 Quantifier = ForAll | ThereExists
