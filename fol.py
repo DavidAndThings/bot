@@ -189,6 +189,33 @@ def negate(clause: FolClause | None) -> FolClause | None:
         raise NotImplementedException(f"Clause type {type(clause)} not supported!")
 
 
+def extract_all_predicates(clause: FolClause | None) -> tuple[Predicate, ...]:
+
+    assert clause
+
+    if isinstance(clause, Predicate):
+        return (clause,)
+
+    elif any(
+        [isinstance(clause, And), isinstance(clause, Or), isinstance(clause, Implies)],
+    ):
+        return extract_all_predicates(clause.left) + extract_all_predicates(
+            clause.right,
+        )
+
+    elif any(
+        [
+            isinstance(clause, ThereExists),
+            isinstance(clause, ForAll),
+            isinstance(clause, Not),
+        ],
+    ):
+        return extract_all_predicates(clause.subordinate)
+
+    else:
+        raise NotImplementedException(f"Clause type f{type(clause)} is not supported!")
+
+
 c = ForAll(
     variables=("X",),
     subordinate=ThereExists(
