@@ -5,61 +5,83 @@ from typing import ClassVar, Mapping
 
 
 @dataclass
-class ThereExists:
-    variables: tuple[str, ...]
-    clause: Clause
-
-
-@dataclass
-class ForAll:
-    variables: tuple[str, ...]
-    clause: Clause
-
-
-@dataclass
-class And:
-    head: Clause
-    tail: Clause
-
-
-@dataclass
-class Implies:
-    head: Clause
-    tail: Clause
-
-
-@dataclass
-class Predicate:
-    name: str
-    arguments: tuple[str | SkolemFunction, ...]
-
-
-@dataclass
 class SkolemFunction:
 
     variables: tuple[str, ...]
     name: str = field(init=False)
-    counter: ClassVar[int] = field(init=False, default=0)
+    counter: ClassVar[int] = 0
 
     def __post_init__(self):
 
         self.name = f"F_{SkolemFunction.counter}"
         SkolemFunction.counter += 1
 
+    def __repr__(self) -> str:
+        return f"{self.name}({', '.join(self.variables)})"
 
-Quantifier = ForAll | ThereExists
-Clause = And | Predicate | ForAll | ThereExists | Implies
+
+@dataclass
+class FolClause:
+
+    variables: tuple[str, ...] = ()
+    subordinate: FolClause | None = None
+    left: FolClause | None = None
+    right: FolClause | None = None
+    name: str | None = None
+    arguments: tuple[str | SkolemFunction, ...] = ()
+
+
+@dataclass
+class ThereExists(FolClause):
+    def __repr__(self) -> str:
+        return f"(there_exists ({', '.join(self.variables)}) {self.subordinate})"
+
+
+@dataclass
+class ForAll(FolClause):
+    def __repr__(self) -> str:
+        return f"(for_all ({', '.join(self.variables)}) {self.subordinate})"
+
+
+@dataclass
+class Not(FolClause):
+    def __repr__(self) -> str:
+        return f"(not {self.subordinate})"
+
+
+@dataclass
+class And(FolClause):
+    def __repr__(self) -> str:
+        return f"({self.left} and {self.right})"
+
+
+@dataclass
+class Or(FolClause):
+    def __repr__(self) -> str:
+        return f"({self.left} or {self.right})"
+
+
+@dataclass
+class Implies(FolClause):
+    def __repr__(self) -> str:
+        return f"({self.left} -> {self.right})"
+
+
+@dataclass
+class Predicate(FolClause):
+    def __repr__(self) -> str:
+        return f"{self.name}({' '.join([str(i) for i in self.arguments])})"
 
 
 class NotImplementedException(Exception):
     pass
 
 
-def eliminate_existantial(
-    clause: Clause,
+def skolemize(
+    clause: FolClause | None,
     universally_quantified_variables: tuple[str, ...],
     variable_map: Mapping[str, tuple[str, ...]],
-) -> Clause:
+) -> FolClause:
 
     if isinstance(clause, ThereExists):
 
@@ -68,8 +90,8 @@ def eliminate_existantial(
         for v in clause.variables:
             new_variable_map = {**new_variable_map, v: universally_quantified_variables}
 
-        return eliminate_existantial(
-            clause=clause.clause,
+        return skolemize(
+            clause=clause.subordinate,
             universally_quantified_variables=universally_quantified_variables,
             variable_map=new_variable_map,
         )
@@ -78,8 +100,8 @@ def eliminate_existantial(
 
         return ForAll(
             variables=clause.variables,
-            clause=eliminate_existantial(
-                clause=clause.clause,
+            subordinate=skolemize(
+                clause=clause.subordinate,
                 universally_quantified_variables=universally_quantified_variables
                 + clause.variables,
                 variable_map=variable_map,
@@ -89,13 +111,13 @@ def eliminate_existantial(
     elif isinstance(clause, And):
 
         return And(
-            head=eliminate_existantial(
-                clause=clause.head,
+            left=skolemize(
+                clause=clause.left,
                 universally_quantified_variables=universally_quantified_variables,
                 variable_map=variable_map,
             ),
-            tail=eliminate_existantial(
-                clause=clause.head,
+            right=skolemize(
+                clause=clause.right,
                 universally_quantified_variables=universally_quantified_variables,
                 variable_map=variable_map,
             ),
@@ -104,13 +126,13 @@ def eliminate_existantial(
     elif isinstance(clause, Implies):
 
         return Implies(
-            head=eliminate_existantial(
-                clause=clause.head,
+            left=skolemize(
+                clause=clause.left,
                 universally_quantified_variables=universally_quantified_variables,
                 variable_map=variable_map,
             ),
-            tail=eliminate_existantial(
-                clause=clause.head,
+            right=skolemize(
+                clause=clause.right,
                 universally_quantified_variables=universally_quantified_variables,
                 variable_map=variable_map,
             ),
@@ -130,4 +152,54 @@ def eliminate_existantial(
 
         return Predicate(name=clause.name, arguments=new_args)
 
-    raise NotImplementedException("Clause type not implemented!")
+    else:
+        raise NotImplementedException(f"Clause type {type(clause)} not implemented!")
+
+
+def negate(clause: FolClause | None) -> FolClause | None:
+
+    if isinstance(clause, Predicate):
+        return Not(subordinate=clause)
+
+    elif isinstance(clause, Not):
+        return clause.subordinate
+
+    elif isinstance(clause, And):
+        return Or(left=negate(clause.left), right=negate(clause.right))
+
+    elif isinstance(clause, Or):
+        return And(left=negate(clause.left), right=negate(clause.right))
+
+    elif isinstance(clause, ForAll):
+        return ThereExists(
+            variables=clause.variables,
+            subordinate=negate(clause.subordinate),
+        )
+
+    elif isinstance(clause, ThereExists):
+        return ForAll(
+            variables=clause.variables,
+            subordinate=negate(clause.subordinate),
+        )
+
+    elif isinstance(clause, Implies):
+        return And(left=clause.left, right=negate(clause.right))
+
+    else:
+        raise NotImplementedException(f"Clause type {type(clause)} not supported!")
+
+
+c = ForAll(
+    variables=("X",),
+    subordinate=ThereExists(
+        variables=("Y",),
+        subordinate=Implies(
+            left=Predicate(name="A", arguments=("X",)),
+            right=Predicate(name="B", arguments=("Y",)),
+        ),
+    ),
+)
+
+c_1 = skolemize(clause=c, universally_quantified_variables=(), variable_map=dict())
+c_2 = negate(c)
+print(c_2)
