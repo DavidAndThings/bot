@@ -260,34 +260,50 @@ class EliminateImplication(ClauseOperation):
 
 class MoveNegationInwards(ClauseOperation):
     def handle_not(self, clause: Not) -> FirstOrderLogicClause:
-        return clause.subordinate
 
-    def handle_predicate(self, clause: Predicate) -> FirstOrderLogicClause:
-        return Not(subordinate=clause)
+        next_clause = clause.subordinate
 
-    def handle_and(self, clause: And) -> FirstOrderLogicClause:
-        return Or(
-            left=self.run(Not(subordinate=clause.left)),
-            right=self.run(Not(subordinate=clause.right)),
-        )
+        if isinstance(next_clause, Predicate):
 
-    def handle_or(self, clause: Or) -> FirstOrderLogicClause:
-        return And(
-            left=self.run(Not(subordinate=clause.left)),
-            right=self.run(Not(subordinate=clause.right)),
-        )
+            return Predicate(name=next_clause.name, arguments=next_clause.arguments)
 
-    def handle_for_all(self, clause: ForAll) -> FirstOrderLogicClause:
-        return ThereExists(
-            variables=clause.variables,
-            subordinate=self.run(Not(clause.subordinate)),
-        )
+        elif isinstance(next_clause, ForAll):
+            return ThereExists(
+                variables=next_clause.variables,
+                subordinate=self.run(Not(subordinate=next_clause.subordinate)),
+            )
 
-    def handle_there_exists(self, clause: ThereExists) -> FirstOrderLogicClause:
-        return ForAll(
-            variables=clause.variables,
-            subordinate=self.run(Not(clause.subordinate)),
-        )
+        elif isinstance(next_clause, ThereExists):
+            return ForAll(
+                variables=next_clause.variables,
+                subordinate=self.run(Not(subordinate=next_clause.subordinate)),
+            )
+
+        elif isinstance(next_clause, Not):
+            return self.run(next_clause.subordinate)
+
+        elif isinstance(next_clause, And):
+            return Or(
+                left=self.run(Not(subordinate=next_clause.left)),
+                right=self.run(Not(subordinate=next_clause.right)),
+            )
+
+        elif isinstance(next_clause, Or):
+            return And(
+                left=self.run(Not(subordinate=next_clause.left)),
+                right=self.run(Not(subordinate=next_clause.right)),
+            )
+
+        elif isinstance(next_clause, Implies):
+            return And(
+                left=self.run(next_clause.left),
+                right=self.run(Not(subordinate=next_clause.right)),
+            )
+
+        else:
+            raise NotImplementedException(
+                f"Clause of type {type(clause)} is not supported!",
+            )
 
 
 def skolemize(
@@ -391,48 +407,6 @@ def skolemize(
 
     else:
         raise NotImplementedException(f"Clause type {type(clause)} not implemented!")
-
-
-def move_negation_inward(clause: FirstOrderLogicClause) -> FirstOrderLogicClause:
-
-    if isinstance(clause, Not):
-        return negate(clause)
-
-    else:
-        return clause
-
-
-def negate(clause: FirstOrderLogicClause) -> FirstOrderLogicClause:
-
-    if isinstance(clause, Predicate):
-        return Not(subordinate=clause)
-
-    elif isinstance(clause, Not):
-        return clause.subordinate
-
-    elif isinstance(clause, And):
-        return Or(left=negate(clause.left), right=negate(clause.right))
-
-    elif isinstance(clause, Or):
-        return And(left=negate(clause.left), right=negate(clause.right))
-
-    elif isinstance(clause, ForAll):
-        return ThereExists(
-            variables=clause.variables,
-            subordinate=negate(clause.subordinate),
-        )
-
-    elif isinstance(clause, ThereExists):
-        return ForAll(
-            variables=clause.variables,
-            subordinate=negate(clause.subordinate),
-        )
-
-    elif isinstance(clause, Implies):
-        return And(left=clause.left, right=negate(clause.right))
-
-    else:
-        raise NotImplementedException(f"Clause type {type(clause)} not supported!")
 
 
 def extract_all_predicates(clause: FirstOrderLogicClause) -> tuple[Predicate, ...]:
