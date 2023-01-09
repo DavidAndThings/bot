@@ -255,7 +255,39 @@ class EliminateImplication(ClauseOperation):
         eliminated_left = self.run(clause.left)
         eliminated_right = self.run(clause.right)
 
-        return Or(left=negate(eliminated_left), right=eliminated_right)
+        return Or(left=Not(eliminated_left), right=eliminated_right)
+
+
+class MoveNegationInwards(ClauseOperation):
+    def handle_not(self, clause: Not) -> FirstOrderLogicClause:
+        return clause.subordinate
+
+    def handle_predicate(self, clause: Predicate) -> FirstOrderLogicClause:
+        return Not(subordinate=clause)
+
+    def handle_and(self, clause: And) -> FirstOrderLogicClause:
+        return Or(
+            left=self.run(Not(subordinate=clause.left)),
+            right=self.run(Not(subordinate=clause.right)),
+        )
+
+    def handle_or(self, clause: Or) -> FirstOrderLogicClause:
+        return And(
+            left=self.run(Not(subordinate=clause.left)),
+            right=self.run(Not(subordinate=clause.right)),
+        )
+
+    def handle_for_all(self, clause: ForAll) -> FirstOrderLogicClause:
+        return ThereExists(
+            variables=clause.variables,
+            subordinate=self.run(Not(clause.subordinate)),
+        )
+
+    def handle_there_exists(self, clause: ThereExists) -> FirstOrderLogicClause:
+        return ForAll(
+            variables=clause.variables,
+            subordinate=self.run(Not(clause.subordinate)),
+        )
 
 
 def skolemize(
