@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from abc import ABC
 from dataclasses import dataclass, field
 from typing import ClassVar, Mapping
 
@@ -20,6 +21,9 @@ class SkolemFunction:
     def __repr__(self) -> str:
         return f"{self.name}({', '.join(self.variables)})"
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 PredicateArgument = str | SkolemFunction
 
@@ -28,6 +32,9 @@ PredicateArgument = str | SkolemFunction
 class UnaryClause:
     subordinate: FirstOrderLogicClause
 
+    def __hash__(self) -> int:
+        return hash(self.subordinate)
+
 
 @dataclass
 class BinaryClause:
@@ -35,10 +42,16 @@ class BinaryClause:
     left: FirstOrderLogicClause
     right: FirstOrderLogicClause
 
+    def __hash__(self) -> int:
+        return hash(self.left) + hash(self.right)
+
 
 @dataclass
 class Quantifier(UnaryClause):
     variables: tuple[str, ...]
+
+    def __hash__(self) -> int:
+        return super().__hash__()
 
 
 @dataclass
@@ -67,6 +80,9 @@ class Predicate:
             ),
         )
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 FirstOrderLogicClause = UnaryClause | BinaryClause | Quantifier | Predicate
 
@@ -76,11 +92,17 @@ class ThereExists(Quantifier):
     def __repr__(self) -> str:
         return f"(there_exists ({', '.join(self.variables)}) {self.subordinate})"
 
+    def __hash__(self) -> int:
+        return super().__hash__()
+
 
 @dataclass
 class ForAll(Quantifier):
     def __repr__(self) -> str:
         return f"(for_all ({', '.join(self.variables)}) {self.subordinate})"
+
+    def __hash__(self) -> int:
+        return super().__hash__()
 
 
 @dataclass
@@ -88,11 +110,17 @@ class Not(UnaryClause):
     def __repr__(self) -> str:
         return f"(not {self.subordinate})"
 
+    def __hash__(self) -> int:
+        return super().__hash__()
+
 
 @dataclass
 class And(BinaryClause):
     def __repr__(self) -> str:
         return f"({self.left} and {self.right})"
+
+    def __hash__(self) -> int:
+        return super().__hash__()
 
 
 @dataclass
@@ -100,63 +128,134 @@ class Or(BinaryClause):
     def __repr__(self) -> str:
         return f"({self.left} or {self.right})"
 
+    def __hash__(self) -> int:
+        return super().__hash__()
+
 
 @dataclass
 class Implies(BinaryClause):
     def __repr__(self) -> str:
         return f"({self.left} -> {self.right})"
 
+    def __hash__(self) -> int:
+        return super().__hash__()
+
 
 class NotImplementedException(Exception):
     pass
 
 
-class NoUnifierException(Exception):
-    pass
+class ClauseOperation(ABC):
+    def __init__(self, next: ClauseOperation | None = None) -> None:
+
+        super().__init__()
+        self.__next = next
+
+    def run(self, clause: FirstOrderLogicClause) -> FirstOrderLogicClause:
+
+        processed_clause: FirstOrderLogicClause
+
+        if isinstance(clause, And):
+            processed_clause = self.handle_and(clause)
+
+        elif isinstance(clause, Or):
+            processed_clause = self.handle_or(clause)
+
+        elif isinstance(clause, Implies):
+            processed_clause = self.handle_implies(clause)
+
+        elif isinstance(clause, Not):
+            processed_clause = self.handle_not(clause)
+
+        elif isinstance(clause, ForAll):
+            processed_clause = self.handle_for_all(clause)
+
+        elif isinstance(clause, ThereExists):
+            processed_clause = self.handle_there_exists(clause)
+
+        elif isinstance(clause, Predicate):
+            processed_clause = self.handle_predicate(clause)
+
+        else:
+            raise NotImplementedException(
+                f"Clause of type {type(clause)} is not supported!",
+            )
+
+        if self.__next:
+            processed_clause = self.__next.run(processed_clause)
+
+        return processed_clause
+
+    def handle_and(self, clause: And) -> FirstOrderLogicClause:
+
+        return And(left=self.run(clause.left), right=self.run(clause.right))
+
+    def handle_or(self, clause: Or) -> FirstOrderLogicClause:
+
+        return Or(left=self.run(clause.left), right=self.run(clause.right))
+
+    def handle_implies(self, clause: Implies) -> FirstOrderLogicClause:
+
+        return Implies(left=self.run(clause.left), right=self.run(clause.right))
+
+    def handle_not(self, clause: Not) -> FirstOrderLogicClause:
+
+        return Not(subordinate=self.run(clause.subordinate))
+
+    def handle_for_all(self, clause: ForAll) -> FirstOrderLogicClause:
+
+        return ForAll(
+            variables=clause.variables,
+            subordinate=self.run(clause.subordinate),
+        )
+
+    def handle_there_exists(self, clause: ThereExists) -> FirstOrderLogicClause:
+
+        return ThereExists(
+            variables=clause.variables,
+            subordinate=self.run(clause.subordinate),
+        )
+
+    def handle_predicate(self, clause: Predicate) -> FirstOrderLogicClause:
+
+        return Predicate(name=clause.name, arguments=clause.arguments)
 
 
-class DisagreementSet:
-    def __init__(self) -> None:
-        self._disagreements: list[tuple[PredicateArgument, PredicateArgument]] = []
+class DistributeOr(ClauseOperation):
+    def handle_or(self, clause: Or) -> FirstOrderLogicClause:
 
-    def add(self, x: PredicateArgument, y: PredicateArgument) -> None:
-        self._disagreements.append((x, y))
+        left_distributed = self.run(clause.left)
+        right_distributed = self.run(clause.right)
 
-    def replace_variable(
-        self,
-        variable: PredicateArgument,
-        replacement: PredicateArgument,
-    ) -> None:
+        if isinstance(left_distributed, And) or isinstance(right_distributed, And):
 
-        new_disagreements = []
+            and_distributed: list[And] = (
+                [] + [left_distributed]
+                if isinstance(left_distributed, And)
+                else [] + [right_distributed]
+                if isinstance(right_distributed, And)
+                else []
+            )
 
-        for i in self._disagreements:
+            to_be_distributed = random.choice(and_distributed)
+            other = (set(and_distributed) - {to_be_distributed}).pop()
 
-            new_disagreement: tuple[PredicateArgument, PredicateArgument] = ()
+            return And(
+                left=self.run(Or(left=to_be_distributed.left, right=other)),
+                right=self.run(Or(left=to_be_distributed.right, right=other)),
+            )
 
-            if i[0] == variable:
-                new_disagreement += (replacement,)
-            elif isinstance(i[0], SkolemFunction) and variable in i[0]:
-                new_disagreement += (i[0].replace(variable, replacement),)
-            else:
-                new_disagreement += (i[0],)
+        else:
+            return Or(left=left_distributed, right=right_distributed)
 
-            if i[1] == variable:
-                new_disagreement += (replacement,)
-            elif isinstance(i[1], SkolemFunction) and variable in i[1]:
-                new_disagreement += (i[1].replace(variable, replacement),)
-            else:
-                new_disagreement += (i[1],)
 
-            new_disagreements.append(new_disagreement)
+class EliminateImplication(ClauseOperation):
+    def handle_implies(self, clause: Implies) -> FirstOrderLogicClause:
 
-        self._disagreements = new_disagreements
+        eliminated_left = self.run(clause.left)
+        eliminated_right = self.run(clause.right)
 
-    def is_empty(self) -> bool:
-        return len(self._disagreements) == 0
-
-    def pop(self) -> tuple[PredicateArgument, PredicateArgument]:
-        return self._disagreements.pop(0)
+        return Or(left=negate(eliminated_left), right=eliminated_right)
 
 
 def skolemize(
@@ -204,10 +303,9 @@ def skolemize(
 
         return Predicate(name=clause.name, arguments=new_args)
 
-    elif isinstance(clause, BinaryClause):
+    elif isinstance(clause, Implies):
 
-        return clause.__class__.__init__(
-            self=clause,
+        return Implies(
             left=skolemize(
                 clause=clause.left,
                 universally_quantified_variables=universally_quantified_variables,
@@ -220,10 +318,38 @@ def skolemize(
             ),
         )
 
-    elif isinstance(clause, UnaryClause):
+    elif isinstance(clause, And):
 
-        return clause.__class__.__init__(
-            self=clause,
+        return And(
+            left=skolemize(
+                clause=clause.left,
+                universally_quantified_variables=universally_quantified_variables,
+                variable_map=variable_map,
+            ),
+            right=skolemize(
+                clause=clause.right,
+                universally_quantified_variables=universally_quantified_variables,
+                variable_map=variable_map,
+            ),
+        )
+
+    elif isinstance(clause, Or):
+        return Or(
+            left=skolemize(
+                clause=clause.left,
+                universally_quantified_variables=universally_quantified_variables,
+                variable_map=variable_map,
+            ),
+            right=skolemize(
+                clause=clause.right,
+                universally_quantified_variables=universally_quantified_variables,
+                variable_map=variable_map,
+            ),
+        )
+
+    elif isinstance(clause, Not):
+
+        return Not(
             subordinate=skolemize(
                 clause=clause.subordinate,
                 universally_quantified_variables=universally_quantified_variables,
@@ -233,80 +359,6 @@ def skolemize(
 
     else:
         raise NotImplementedException(f"Clause type {type(clause)} not implemented!")
-
-
-def distribute_or(clause: FirstOrderLogicClause) -> FirstOrderLogicClause:
-
-    if isinstance(clause, Predicate):
-        return clause
-
-    elif isinstance(clause, And):
-        return And(left=distribute_or(clause.left), right=distribute_or(clause.right))
-
-    elif isinstance(clause, Or):
-        left_distributed = distribute_or(clause.left)
-        right_distributed = distribute_or(clause.right)
-
-        if isinstance(left_distributed, And) or isinstance(right_distributed, And):
-
-            and_distributed: list[FirstOrderLogicClause] = (
-                [] + [left_distributed]
-                if isinstance(left_distributed, And)
-                else [] + [right_distributed]
-                if isinstance(right_distributed, And)
-                else []
-            )
-
-            to_be_distributed = random.choice(and_distributed)
-            other = (set(and_distributed) - {to_be_distributed}).pop()
-
-            return And(
-                left=distribute_or(Or(left=to_be_distributed.left, right=other)),
-                right=distribute_or(Or(left=to_be_distributed.right, right=other)),
-            )
-
-        else:
-            return Or(left=left_distributed, right=right_distributed)
-
-    elif isinstance(clause, UnaryClause):
-        return clause.__class__.__init__(subordinate=distribute_or(clause.subordinate))
-
-    elif isinstance(clause, BinaryClause):
-        return clause.__class__.__init__(
-            left=distribute_or(clause.left),
-            right=distribute_or(clause.right),
-        )
-
-    else:
-        raise NotImplementedException(
-            f"Clause of type: {type(clause)} is not supported for distribute_or!",
-        )
-
-
-def eliminate_implication(clause: FirstOrderLogicClause) -> FirstOrderLogicClause:
-
-    if isinstance(clause, Implies):
-
-        eliminated_left = eliminate_implication(clause.left)
-        eliminated_right = eliminate_implication(clause.right)
-
-        return Or(left=negate(eliminated_left), right=eliminated_right)
-
-    elif isinstance(clause, UnaryClause):
-        return clause.__class__.__init__(
-            subordinate=eliminate_implication(clause.subordinate),
-        )
-
-    elif isinstance(clause, BinaryClause):
-        return clause.__class__.__init__(
-            left=eliminate_implication(clause.left),
-            right=eliminate_implication(clause.right),
-        )
-
-    else:
-        raise NotImplementedException(
-            f"Clause of type: {type(clause)} is not supported for distribute_or!",
-        )
 
 
 def move_negation_inward(clause: FirstOrderLogicClause) -> FirstOrderLogicClause:
@@ -358,63 +410,22 @@ def extract_all_predicates(clause: FirstOrderLogicClause) -> tuple[Predicate, ..
     if isinstance(clause, Predicate):
         return (clause,)
 
-    elif any(
-        [isinstance(clause, And), isinstance(clause, Or), isinstance(clause, Implies)],
+    elif (
+        isinstance(clause, And) or isinstance(clause, Or) or isinstance(clause, Implies)
     ):
         return extract_all_predicates(clause.left) + extract_all_predicates(
             clause.right,
         )
 
-    elif any(
-        [
-            isinstance(clause, ThereExists),
-            isinstance(clause, ForAll),
-            isinstance(clause, Not),
-        ],
+    elif (
+        isinstance(clause, ThereExists)
+        or isinstance(clause, ForAll)
+        or isinstance(clause, Not)
     ):
         return extract_all_predicates(clause.subordinate)
 
     else:
         raise NotImplementedException(f"Clause type f{type(clause)} is not supported!")
-
-
-def find_most_general_unifier(
-    x: FirstOrderLogicClause,
-    y: FirstOrderLogicClause,
-) -> list[tuple[PredicateArgument, PredicateArgument]]:
-
-    disagreement_set = DisagreementSet()
-
-    for i in extract_all_predicates(x):
-        for j in extract_all_predicates(y):
-
-            if i.name == j.name:
-
-                assert len(i.arguments) == len(j.arguments)
-
-                for index in range(len(i.arguments)):
-                    disagreement_set.add(i.arguments[index], j.arguments[index])
-
-    unifier = []
-
-    while not disagreement_set.is_empty():
-
-        disagreement = disagreement_set.pop()
-
-        if is_variable(disagreement[0]):
-            disagreement_set.replace_variable(disagreement[0], disagreement[1])
-            unifier.append(disagreement)
-
-        elif is_variable(disagreement[1]):
-            disagreement_set.replace_variable(disagreement[1], disagreement[0])
-            unifier.append(disagreement)
-
-        else:
-            raise NoUnifierException(
-                f"No unifier available for disagreements: {disagreement_set}",
-            )
-
-    return unifier
 
 
 def is_variable(arg: PredicateArgument) -> bool:
